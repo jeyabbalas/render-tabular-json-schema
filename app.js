@@ -97,15 +97,24 @@ class SchemaProcessor {
     collectKeywordUsage() {
         const properties = this.getTableData()?.properties || [];
 
-        // Keywords that should not be shown as columns
-        const excludedKeywords = ['$schema', '$id', '$ref', 'properties', 'items', 'allOf', 'anyOf', 'oneOf', 'enumDescriptions'];
+        // Keywords that should not be shown as available columns
+        const excludedKeywords = new Set([
+            // System keywords
+            '$schema', '$id', '$ref', 'properties', 'items', 'allOf', 'anyOf', 'oneOf',
+            // Default column keywords that are always handled
+            'name', 'description', 'type', 'enum', 'enumDescriptions',
+            // Keywords consolidated into constraints column
+            'required', 'const', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
+            'uniqueItems', 'minProperties', 'maxProperties'
+        ]);
 
         for (const prop of properties) {
             const schema = prop.schema;
 
             // Collect all keywords from the schema
             for (const keyword of Object.keys(schema)) {
-                if (!excludedKeywords.includes(keyword)) {
+                if (!excludedKeywords.has(keyword)) {
                     const count = this.keywordUsage.get(keyword) || 0;
                     this.keywordUsage.set(keyword, count + 1);
                 }
@@ -148,7 +157,8 @@ class ColumnManager {
             { keyword: 'description', display: 'Description', width: 300 },
             { keyword: 'type', display: 'Data Type', width: 110 },
             { keyword: 'enum', display: 'Valid Values', width: 140 },
-            { keyword: 'required', display: 'Required', width: 80 }
+            { keyword: 'constraints', display: 'Constraints', width: 150 },
+            { keyword: 'additionalInfo', display: 'Additional Info', width: 120 }
         ];
 
         // Default column order
@@ -159,31 +169,25 @@ class ColumnManager {
             name: { display: 'Variable Name', width: 150 },
             description: { display: 'Description', width: 300 },
             type: { display: 'Data Type', width: 110 },
-            format: { display: 'Format', width: 100 },
             enum: { display: 'Valid Values', width: 140 },
-            required: { display: 'Required', width: 80 },
+            constraints: { display: 'Constraints', width: 150 },
+            additionalInfo: { display: 'Additional Info', width: 120 },
+            // Additional columns that can be pulled from Additional Info
+            format: { display: 'Format', width: 100 },
             default: { display: 'Default', width: 100 },
-            const: { display: 'Constant', width: 100 },
-            minimum: { display: 'Min', width: 80 },
-            maximum: { display: 'Max', width: 80 },
-            exclusiveMinimum: { display: 'Exclusive Min', width: 100 },
-            exclusiveMaximum: { display: 'Exclusive Max', width: 100 },
-            minLength: { display: 'Min Length', width: 90 },
-            maxLength: { display: 'Max Length', width: 90 },
-            pattern: { display: 'Pattern', width: 150 },
-            multipleOf: { display: 'Multiple Of', width: 90 },
-            minItems: { display: 'Min Items', width: 90 },
-            maxItems: { display: 'Max Items', width: 90 },
-            uniqueItems: { display: 'Unique Items', width: 100 },
-            minProperties: { display: 'Min Properties', width: 110 },
-            maxProperties: { display: 'Max Properties', width: 110 },
             deprecated: { display: 'Deprecated', width: 90 },
             readOnly: { display: 'Read Only', width: 90 },
             writeOnly: { display: 'Write Only', width: 90 },
             title: { display: 'Title', width: 150 },
-            examples: { display: 'Examples', width: 200 },
-            additionalInfo: { display: 'Additional Info', width: 200 }
+            examples: { display: 'Examples', width: 200 }
         };
+
+        // Keywords that are consolidated into other columns and shouldn't appear as options
+        this.consolidatedKeywords = new Set([
+            'required', 'const', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
+            'uniqueItems', 'minProperties', 'maxProperties', 'enumDescriptions'
+        ]);
 
         // Currently selected columns
         this.selectedColumns = this.defaultColumns.map(c => c.keyword);
@@ -293,14 +297,24 @@ class ColumnManager {
             this.renderCheckboxItem(checkboxList, keyword, def.display, count, addedKeywords, i, true);
         }
 
-        // Collect unselected keywords and sort by count
+        // Collect unselected keywords from actual schema data
         const unselectedKeywords = [];
-        const allKeywords = ['name', 'required', 'additionalInfo', ...Object.keys(this.columnDefinitions)];
 
-        for (const keyword of allKeywords) {
-            if (!addedKeywords.has(keyword)) {
-                const count = keyword === 'additionalInfo' ? null : keywordCountMap.get(keyword) || 0;
-                unselectedKeywords.push({ keyword, count });
+        // First add special columns that don't come from schema keywords
+        if (!addedKeywords.has('constraints')) {
+            unselectedKeywords.push({ keyword: 'constraints', count: null });
+        }
+        if (!addedKeywords.has('additionalInfo')) {
+            unselectedKeywords.push({ keyword: 'additionalInfo', count: null });
+        }
+
+        // Then add all keywords actually found in the schema
+        if (this.keywordStats) {
+            for (const { keyword, count } of this.keywordStats) {
+                // Skip if already added or is a consolidated keyword
+                if (!addedKeywords.has(keyword) && !this.consolidatedKeywords.has(keyword)) {
+                    unselectedKeywords.push({ keyword, count });
+                }
             }
         }
 
@@ -579,30 +593,92 @@ class TableRenderer {
         return div.innerHTML;
     }
 
-    formatConstraints(schema) {
+    formatConstraintsColumn(prop, schema) {
         const constraints = [];
 
-        if (schema.minimum !== undefined || schema.maximum !== undefined) {
-            const min = schema.minimum ?? (schema.exclusiveMinimum !== undefined ? `>${schema.exclusiveMinimum}` : '');
-            const max = schema.maximum ?? (schema.exclusiveMaximum !== undefined ? `<${schema.exclusiveMaximum}` : '');
-            if (min || max) {
-                constraints.push(`Range: ${min}${(min !== '' && max !== '') ? '-' : ''}${max}`);
+        // Add required status
+        if (prop.required) {
+            constraints.push('Required');
+        }
+
+        // Range constraints
+        if (schema.minimum !== undefined || schema.maximum !== undefined ||
+            schema.exclusiveMinimum !== undefined || schema.exclusiveMaximum !== undefined) {
+            let min = '';
+            let max = '';
+
+            if (schema.minimum !== undefined) {
+                min = schema.minimum;
+            } else if (schema.exclusiveMinimum !== undefined) {
+                min = `>${schema.exclusiveMinimum}`;
+            }
+
+            if (schema.maximum !== undefined) {
+                max = schema.maximum;
+            } else if (schema.exclusiveMaximum !== undefined) {
+                max = `<${schema.exclusiveMaximum}`;
+            }
+
+            if (min !== '' || max !== '') {
+                const rangeStr = min !== '' && max !== '' ? `${min}-${max}` : `${min}${max}`;
+                constraints.push(`Range: ${rangeStr}`);
             }
         }
 
-        if (schema.minLength || schema.maxLength) {
-            const len = schema.minLength === schema.maxLength ?
-                `${schema.minLength} chars` :
-                `${schema.minLength || '0'}-${schema.maxLength || '∞'} chars`;
-            constraints.push(len);
+        // Length constraints
+        if (schema.minLength !== undefined || schema.maxLength !== undefined) {
+            if (schema.minLength === schema.maxLength) {
+                constraints.push(`${schema.minLength} chars`);
+            } else {
+                const minLen = schema.minLength || '0';
+                const maxLen = schema.maxLength || '∞';
+                constraints.push(`${minLen}-${maxLen} chars`);
+            }
         }
 
+        // Pattern
         if (schema.pattern) {
-            constraints.push(`Pattern: ${schema.pattern}`);
+            // Truncate long patterns
+            const pattern = schema.pattern.length > 30 ?
+                schema.pattern.substring(0, 30) + '...' : schema.pattern;
+            constraints.push(`Pattern: ${pattern}`);
         }
 
+        // Multiple of
         if (schema.multipleOf) {
             constraints.push(`Multiple of ${schema.multipleOf}`);
+        }
+
+        // Items constraints
+        if (schema.minItems !== undefined || schema.maxItems !== undefined) {
+            if (schema.minItems === schema.maxItems) {
+                constraints.push(`${schema.minItems} items`);
+            } else {
+                const minItems = schema.minItems || '0';
+                const maxItems = schema.maxItems || '∞';
+                constraints.push(`${minItems}-${maxItems} items`);
+            }
+        }
+
+        // Unique items
+        if (schema.uniqueItems) {
+            constraints.push('Unique items');
+        }
+
+        // Properties constraints
+        if (schema.minProperties !== undefined || schema.maxProperties !== undefined) {
+            if (schema.minProperties === schema.maxProperties) {
+                constraints.push(`${schema.minProperties} properties`);
+            } else {
+                const minProps = schema.minProperties || '0';
+                const maxProps = schema.maxProperties || '∞';
+                constraints.push(`${minProps}-${maxProps} properties`);
+            }
+        }
+
+        // Const value constraint
+        if (schema.const !== undefined) {
+            constraints.push(`Const: ${schema.const}`);
         }
 
         return constraints;
@@ -652,36 +728,13 @@ class TableRenderer {
                 }
                 return this.formatEnum(schema);
 
-            case 'required':
-                return prop.required ?
-                    '<span class="required-badge">Yes</span>' :
-                    '<span class="optional-badge">No</span>';
+            case 'constraints':
+                const constraints = this.formatConstraintsColumn(prop, schema);
+                return constraints.map(c => `<span class="constraint">${this.escapeHtml(c)}</span>`).join(' ');
 
             case 'default':
                 return schema.default !== undefined ?
                     this.formatValue(schema.default, true) : '';
-
-            case 'const':
-                return schema.const !== undefined ?
-                    `<span class="const-value">${this.escapeHtml(String(schema.const))}</span>` : '';
-
-            case 'minimum':
-            case 'maximum':
-            case 'exclusiveMinimum':
-            case 'exclusiveMaximum':
-            case 'minLength':
-            case 'maxLength':
-            case 'multipleOf':
-            case 'minItems':
-            case 'maxItems':
-            case 'minProperties':
-            case 'maxProperties':
-                return schema[keyword] !== undefined ?
-                    `<span class="constraint">${schema[keyword]}</span>` : '';
-
-            case 'pattern':
-                return schema.pattern ?
-                    `<span class="constraint" title="${this.escapeHtml(schema.pattern)}">${this.escapeHtml(schema.pattern.substring(0, 20))}${schema.pattern.length > 20 ? '...' : ''}</span>` : '';
 
             case 'format':
                 return schema.format ?
@@ -690,7 +743,6 @@ class TableRenderer {
             case 'deprecated':
             case 'readOnly':
             case 'writeOnly':
-            case 'uniqueItems':
                 return schema[keyword] === true ?
                     '<span class="required-badge">Yes</span>' : '';
 
@@ -719,14 +771,18 @@ class TableRenderer {
         // Keywords that are handled in other columns and should be excluded
         const excludedKeywords = [
             'name', 'description', 'type', 'enum', 'enumDescriptions', 'const',
-            'required', '$schema', '$id', '$ref', 'properties', 'items',
-            'allOf', 'anyOf', 'oneOf'
+            '$schema', '$id', '$ref', 'properties', 'items',
+            'allOf', 'anyOf', 'oneOf',
+            // Keywords consolidated into Constraints column
+            'required', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
+            'uniqueItems', 'minProperties', 'maxProperties'
         ];
 
         // Get currently displayed columns
         const displayedColumns = this.columnManager.getSelectedColumns();
 
-        // Collect all other keywords not in displayed columns
+        // Collect all other keywords not in displayed columns or excluded
         const additionalData = {};
         for (const [key, value] of Object.entries(schema)) {
             if (!excludedKeywords.includes(key) &&
@@ -760,8 +816,8 @@ class TableRenderer {
         </div>`;
     }
 
-    formatConstraintsForCSV(schema) {
-        const constraints = this.formatConstraints(schema);
+    formatConstraintsForCSV(prop, schema) {
+        const constraints = this.formatConstraintsColumn(prop, schema);
         return constraints.join('\n');
     }
 
@@ -769,14 +825,18 @@ class TableRenderer {
         // Keywords that are handled in other columns and should be excluded
         const excludedKeywords = [
             'name', 'description', 'type', 'enum', 'enumDescriptions', 'const',
-            'required', '$schema', '$id', '$ref', 'properties', 'items',
-            'allOf', 'anyOf', 'oneOf'
+            '$schema', '$id', '$ref', 'properties', 'items',
+            'allOf', 'anyOf', 'oneOf',
+            // Keywords consolidated into Constraints column
+            'required', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
+            'uniqueItems', 'minProperties', 'maxProperties'
         ];
 
         // Get currently displayed columns
         const displayedColumns = this.columnManager.getSelectedColumns();
 
-        // Collect all other keywords not in displayed columns
+        // Collect all other keywords not in displayed columns or excluded
         const additionalData = [];
         for (const [key, value] of Object.entries(schema)) {
             if (!excludedKeywords.includes(key) &&
@@ -902,8 +962,8 @@ class TableRenderer {
                             String(prop.schema.const) :
                             this.formatEnumForCSV(prop.schema);
                         break;
-                    case 'required':
-                        value = prop.required ? 'Yes' : 'No';
+                    case 'constraints':
+                        value = this.formatConstraintsForCSV(prop, prop.schema);
                         break;
                     case 'additionalInfo':
                         value = this.formatAdditionalInfoForCSV(prop, prop.schema);
