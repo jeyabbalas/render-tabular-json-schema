@@ -156,6 +156,7 @@ class ColumnManager {
             { keyword: 'name', display: 'Variable Name', width: 150 },
             { keyword: 'description', display: 'Description', width: 300 },
             { keyword: 'type', display: 'Data Type', width: 110 },
+            { keyword: 'format', display: 'Format', width: 140 },
             { keyword: 'enum', display: 'Valid Values', width: 140 },
             { keyword: 'constraints', display: 'Constraints', width: 150 },
             { keyword: 'additionalInfo', display: 'Additional Info', width: 120 }
@@ -552,15 +553,107 @@ class TableRenderer {
         this.columnManager = columnManager;
     }
 
+    getFormatDescription(format) {
+        const formatDescriptions = {
+            // Dates and Times
+            'date-time': {
+                description: 'Date and time together',
+                example: '2018-11-13T20:20:39+00:00'
+            },
+            'time': {
+                description: 'Time',
+                example: '20:20:39+00:00'
+            },
+            'date': {
+                description: 'Date',
+                example: '2018-11-13'
+            },
+            'duration': {
+                description: 'ISO 8601 duration',
+                example: 'P3D (3 days)'
+            },
+
+            // Email Addresses
+            'email': {
+                description: 'Email address',
+                example: 'user@example.com'
+            },
+            'idn-email': {
+                description: 'Internationalized email',
+                example: 'user@例え.jp'
+            },
+
+            // Hostnames
+            'hostname': {
+                description: 'Internet host name',
+                example: 'example.com'
+            },
+            'idn-hostname': {
+                description: 'Internationalized hostname',
+                example: '例え.jp'
+            },
+
+            // IP Addresses
+            'ipv4': {
+                description: 'IPv4 address',
+                example: '192.168.1.1'
+            },
+            'ipv6': {
+                description: 'IPv6 address',
+                example: '2001:db8::8a2e:370:7334'
+            },
+
+            // Resource Identifiers
+            'uuid': {
+                description: 'Universally Unique Identifier',
+                example: '3e4666bf-d5e5-4aa7-b8ce-cefe41c7568a'
+            },
+            'uri': {
+                description: 'URI',
+                example: 'https://example.com/path'
+            },
+            'uri-reference': {
+                description: 'URI or relative reference',
+                example: '/path/to/resource'
+            },
+            'iri': {
+                description: 'Internationalized URI',
+                example: 'https://例え.jp/path'
+            },
+            'iri-reference': {
+                description: 'Internationalized URI reference',
+                example: '/パス/リソース'
+            },
+
+            // Templates and Pointers
+            'uri-template': {
+                description: 'URI Template',
+                example: '/users/{id}/posts{?limit}'
+            },
+            'json-pointer': {
+                description: 'JSON Pointer',
+                example: '/foo/bar/0'
+            },
+            'relative-json-pointer': {
+                description: 'Relative JSON Pointer',
+                example: '0/foo/bar'
+            },
+
+            // Regular Expressions
+            'regex': {
+                description: 'Regular expression',
+                example: '^[a-z]+$'
+            }
+        };
+
+        return formatDescriptions[format] || null;
+    }
+
     formatType(schema) {
         if (Array.isArray(schema.type)) {
             return schema.type.join(' | ');
         }
-        let type = schema.type || 'any';
-        if (schema.format) {
-            return `${type} (${schema.format})`;
-        }
-        return type;
+        return schema.type || 'any';
     }
 
     formatValue(value, isJson = false) {
@@ -737,8 +830,25 @@ class TableRenderer {
                     this.formatValue(schema.default, true) : '';
 
             case 'format':
-                return schema.format ?
-                    `<span class="data-type">${schema.format}</span>` : '';
+                if (!schema.format) return '';
+
+                const formatInfo = this.getFormatDescription(schema.format);
+                if (formatInfo) {
+                    // Built-in format with description
+                    return `<div class="format-info">
+                        <span class="format-name">${schema.format}</span>
+                        <div class="format-details">
+                            <span class="format-description">${formatInfo.description}</span>
+                            <span class="format-example">e.g., ${this.escapeHtml(formatInfo.example)}</span>
+                        </div>
+                    </div>`;
+                } else {
+                    // Custom format
+                    return `<div class="format-info">
+                        <span class="format-name custom">${schema.format}</span>
+                        <span class="format-custom-label">(custom)</span>
+                    </div>`;
+                }
 
             case 'deprecated':
             case 'readOnly':
@@ -770,7 +880,7 @@ class TableRenderer {
     formatAdditionalInfo(prop, schema) {
         // Keywords that are handled in other columns and should be excluded
         const excludedKeywords = [
-            'name', 'description', 'type', 'enum', 'enumDescriptions', 'const',
+            'name', 'description', 'type', 'format', 'enum', 'enumDescriptions', 'const',
             '$schema', '$id', '$ref', 'properties', 'items',
             'allOf', 'anyOf', 'oneOf',
             // Keywords consolidated into Constraints column
@@ -824,7 +934,7 @@ class TableRenderer {
     formatAdditionalInfoForCSV(prop, schema) {
         // Keywords that are handled in other columns and should be excluded
         const excludedKeywords = [
-            'name', 'description', 'type', 'enum', 'enumDescriptions', 'const',
+            'name', 'description', 'type', 'format', 'enum', 'enumDescriptions', 'const',
             '$schema', '$id', '$ref', 'properties', 'items',
             'allOf', 'anyOf', 'oneOf',
             // Keywords consolidated into Constraints column
@@ -961,6 +1071,16 @@ class TableRenderer {
                         value = prop.schema.const !== undefined ?
                             String(prop.schema.const) :
                             this.formatEnumForCSV(prop.schema);
+                        break;
+                    case 'format':
+                        if (prop.schema.format) {
+                            const formatInfo = this.getFormatDescription(prop.schema.format);
+                            if (formatInfo) {
+                                value = `${prop.schema.format} - ${formatInfo.description} (e.g., ${formatInfo.example})`;
+                            } else {
+                                value = `${prop.schema.format} (custom)`;
+                            }
+                        }
                         break;
                     case 'constraints':
                         value = this.formatConstraintsForCSV(prop, prop.schema);

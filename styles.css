@@ -453,6 +453,53 @@ tbody td {
     font-weight: 500;
 }
 
+/* Format column styles */
+.format-info {
+    display: inline-block;
+}
+
+.format-name {
+    display: inline-block;
+    padding: 3px 8px;
+    background: #f0f4c3;
+    color: #827717;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.format-name.custom {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.format-custom-label {
+    margin-left: 4px;
+    font-size: 11px;
+    color: #95a5a6;
+    font-style: italic;
+}
+
+.format-details {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: #718096;
+}
+
+.format-description {
+    display: block;
+}
+
+.format-example {
+    display: block;
+    margin-top: 2px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    color: #546e7a;
+    font-style: italic;
+}
+
 .required-badge {
     display: inline-block;
     padding: 2px 6px;
