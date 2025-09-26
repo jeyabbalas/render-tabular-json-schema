@@ -23,7 +23,7 @@
             </div>
             <div class="actions">
                 <button id="processBtn" class="btn btn-primary" style="display:none;">Generate Table</button>
-                <button id="exportBtn" class="btn btn-secondary" style="display:none;">Export to CSV</button>
+                <button id="exportBtn" class="btn btn-secondary" style="display:none;">Export to Excel</button>
             </div>
             <div id="errorMessage"></div>
         </div>
@@ -32,6 +32,11 @@
 
         <div id="tableOutput"></div>
     </div>
+
+    <!-- ExcelJS Library for Excel file generation -->
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+    <!-- FileSaver.js for browser file download -->
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
     <script src="app.js"></script>
 </body>

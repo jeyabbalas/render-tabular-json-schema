@@ -1112,6 +1112,316 @@ class TableRenderer {
             }).join(',')
         ).join('\n');
     }
+
+    async exportToExcel(data, selectedColumns = null) {
+        if (!data) return;
+
+        const columns = selectedColumns || this.columnManager.getSelectedColumns();
+
+        // Create a new workbook
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'JSON Schema to Data Dictionary';
+        workbook.created = new Date();
+
+        // Add a worksheet
+        const worksheet = workbook.addWorksheet(data.title || 'Data Dictionary', {
+            properties: {
+                defaultRowHeight: 18,
+            },
+            views: [
+                {
+                    state: 'frozen',
+                    ySplit: 2,  // Freeze first 2 rows (title and headers)
+                    activeCell: 'A3'
+                }
+            ]
+        });
+
+        // Add title row
+        worksheet.mergeCells(`A1:${String.fromCharCode(65 + columns.length)}1`);
+        const titleCell = worksheet.getCell('A1');
+        titleCell.value = data.title || 'Data Dictionary';
+        titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF2C3E50' } };
+        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+        titleCell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE8F4FD' }
+        };
+        worksheet.getRow(1).height = 30;
+
+        // Add headers
+        const headers = ['Category'];
+        for (const col of columns) {
+            const def = this.columnManager.getColumnDefinition(col);
+            headers.push(def.display);
+        }
+
+        worksheet.addRow(headers);
+        const headerRow = worksheet.getRow(2);
+        headerRow.font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF34495E' }
+        };
+        headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        headerRow.height = 25;
+
+        // Add filters
+        worksheet.autoFilter = {
+            from: { row: 2, column: 1 },
+            to: { row: 2, column: headers.length }
+        };
+
+        // Process data rows
+        let currentCategory = '';
+        let rowIndex = 3;
+        const hasCategories = data.properties.some(p => p.category);
+
+        for (const prop of data.properties) {
+            // Add category row if changed
+            if (hasCategories && prop.category && prop.category !== currentCategory) {
+                currentCategory = prop.category;
+                worksheet.addRow([currentCategory]);
+                const categoryRow = worksheet.getRow(rowIndex);
+                worksheet.mergeCells(`A${rowIndex}:${String.fromCharCode(65 + columns.length)}${rowIndex}`);
+                categoryRow.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF2C3E50' } };
+                categoryRow.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFD5DBDB' }
+                };
+                categoryRow.alignment = { vertical: 'middle', horizontal: 'left' };
+                categoryRow.height = 22;
+                rowIndex++;
+            }
+
+            const rowData = [currentCategory || ''];
+
+            // Add values for selected columns
+            for (const col of columns) {
+                let value = '';
+
+                switch (col) {
+                    case 'name':
+                        value = prop.name;
+                        break;
+                    case 'description':
+                        value = prop.schema.description || '';
+                        break;
+                    case 'type':
+                        value = this.formatType(prop.schema);
+                        break;
+                    case 'enum':
+                        value = prop.schema.const !== undefined ?
+                            String(prop.schema.const) :
+                            this.formatEnumForExcel(prop.schema);
+                        break;
+                    case 'format':
+                        if (prop.schema.format) {
+                            const formatInfo = this.getFormatDescription(prop.schema.format);
+                            if (formatInfo) {
+                                value = `${prop.schema.format}\n${formatInfo.description}\nExample: ${formatInfo.example}`;
+                            } else {
+                                value = `${prop.schema.format} (custom)`;
+                            }
+                        }
+                        break;
+                    case 'constraints':
+                        value = this.formatConstraintsForExcel(prop, prop.schema);
+                        break;
+                    case 'additionalInfo':
+                        value = this.formatAdditionalInfoForExcel(prop, prop.schema);
+                        break;
+                    default:
+                        if (prop.schema[col] !== undefined) {
+                            value = typeof prop.schema[col] === 'object' ?
+                                JSON.stringify(prop.schema[col], null, 2) :
+                                String(prop.schema[col]);
+                        }
+                }
+
+                rowData.push(value);
+            }
+
+            worksheet.addRow(rowData);
+            const dataRow = worksheet.getRow(rowIndex);
+
+            // Style data row
+            dataRow.font = { name: 'Arial', size: 10 };
+            dataRow.alignment = { vertical: 'top', wrapText: true };
+
+            // Alternate row colors
+            if ((rowIndex - 3) % 2 === 0) {
+                dataRow.fill = {
+                    type: 'pattern',
+                    pattern: 'solid',
+                    fgColor: { argb: 'FFF8F9FA' }
+                };
+            }
+
+            // Highlight required fields with bold (no red color)
+            if (prop.required) {
+                const nameCell = dataRow.getCell(columns.indexOf('name') + 2);
+                nameCell.font = {
+                    name: 'Arial',
+                    size: 10,
+                    bold: true
+                };
+            }
+
+            // Set specific cell styles
+            const typeCell = dataRow.getCell(columns.indexOf('type') + 2);
+            if (typeCell.value) {
+                typeCell.font = {
+                    name: 'Consolas',
+                    size: 10,
+                    color: { argb: 'FF1976D2' }
+                };
+            }
+
+            rowIndex++;
+        }
+
+        // Auto-fit columns with max width
+        worksheet.columns.forEach((column, index) => {
+            let maxLength = 0;
+            const columnLetter = String.fromCharCode(65 + index);
+
+            // Check header length
+            maxLength = Math.max(maxLength, headers[index]?.length || 0);
+
+            // Check all data in the column
+            for (let i = 3; i <= worksheet.rowCount; i++) {
+                const cell = worksheet.getCell(`${columnLetter}${i}`);
+                const cellValue = String(cell.value || '');
+                // For multi-line content, check the longest line
+                const lines = cellValue.split('\n');
+                const longestLine = Math.max(...lines.map(line => line.length));
+                maxLength = Math.max(maxLength, longestLine);
+            }
+
+            // Set width with minimum and maximum constraints
+            const minWidth = 10;
+            const maxWidth = index === 0 ? 20 : // Category column
+                            columns[index - 1] === 'description' ? 50 :
+                            columns[index - 1] === 'enum' ? 35 :
+                            columns[index - 1] === 'constraints' ? 30 :
+                            columns[index - 1] === 'additionalInfo' ? 35 :
+                            40;
+
+            column.width = Math.min(Math.max(maxLength + 2, minWidth), maxWidth);
+        });
+
+        // Add borders to all cells
+        for (let i = 1; i <= worksheet.rowCount; i++) {
+            for (let j = 1; j <= headers.length; j++) {
+                const cell = worksheet.getRow(i).getCell(j);
+                if (i === 1) {
+                    // Title row - thick border
+                    cell.border = {
+                        top: { style: 'medium', color: { argb: 'FF34495E' } },
+                        left: { style: 'medium', color: { argb: 'FF34495E' } },
+                        bottom: { style: 'medium', color: { argb: 'FF34495E' } },
+                        right: { style: 'medium', color: { argb: 'FF34495E' } }
+                    };
+                } else if (i === 2) {
+                    // Header row - medium border
+                    cell.border = {
+                        top: { style: 'medium', color: { argb: 'FF34495E' } },
+                        left: { style: 'thin', color: { argb: 'FF95A5A6' } },
+                        bottom: { style: 'medium', color: { argb: 'FF34495E' } },
+                        right: { style: 'thin', color: { argb: 'FF95A5A6' } }
+                    };
+                } else {
+                    // Data rows - thin border
+                    cell.border = {
+                        top: { style: 'thin', color: { argb: 'FFD5DBDB' } },
+                        left: { style: 'thin', color: { argb: 'FFD5DBDB' } },
+                        bottom: { style: 'thin', color: { argb: 'FFD5DBDB' } },
+                        right: { style: 'thin', color: { argb: 'FFD5DBDB' } }
+                    };
+                }
+            }
+        }
+
+        // Set page setup for printing
+        worksheet.pageSetup = {
+            orientation: 'landscape',
+            fitToPage: true,
+            fitToWidth: 1,
+            fitToHeight: 0,
+            margins: {
+                left: 0.7,
+                right: 0.7,
+                top: 0.75,
+                bottom: 0.75,
+                header: 0.3,
+                footer: 0.3
+            }
+        };
+
+        // Generate Excel file
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+
+        // Download file
+        saveAs(blob, `${data.title || 'data_dictionary'}.xlsx`);
+    }
+
+    formatEnumForExcel(schema) {
+        if (!schema.enum) return '';
+
+        const hasDescriptions = schema.enumDescriptions &&
+            Array.isArray(schema.enumDescriptions) &&
+            schema.enumDescriptions.length === schema.enum.length;
+
+        if (hasDescriptions) {
+            return schema.enum.map((value, index) =>
+                `• ${value}: ${schema.enumDescriptions[index]}`
+            ).join('\n');
+        } else {
+            return schema.enum.map(value => `• ${value}`).join('\n');
+        }
+    }
+
+    formatConstraintsForExcel(prop, schema) {
+        const constraints = this.formatConstraintsColumn(prop, schema);
+        return constraints.join('\n');
+    }
+
+    formatAdditionalInfoForExcel(prop, schema) {
+        // Keywords that are handled in other columns and should be excluded
+        const excludedKeywords = [
+            'name', 'description', 'type', 'format', 'enum', 'enumDescriptions', 'const',
+            '$schema', '$id', '$ref', 'properties', 'items',
+            'allOf', 'anyOf', 'oneOf',
+            // Keywords consolidated into Constraints column
+            'required', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
+            'uniqueItems', 'minProperties', 'maxProperties'
+        ];
+
+        // Get currently displayed columns
+        const displayedColumns = this.columnManager.getSelectedColumns();
+
+        // Collect all other keywords not in displayed columns or excluded
+        const additionalData = [];
+        for (const [key, value] of Object.entries(schema)) {
+            if (!excludedKeywords.includes(key) &&
+                !displayedColumns.includes(key) &&
+                value !== undefined && value !== null) {
+                const displayValue = typeof value === 'object' ?
+                    JSON.stringify(value, null, 2) : String(value);
+                additionalData.push(`${this.columnManager.formatKeywordDisplay(key)}: ${displayValue}`);
+            }
+        }
+
+        return additionalData.join('\n');
+    }
 }
 
 // Global functions for event handlers
@@ -1210,17 +1520,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    document.getElementById('exportBtn').addEventListener('click', () => {
+    document.getElementById('exportBtn').addEventListener('click', async () => {
         if (!currentData) return;
 
-        const csv = renderer.exportToCSV(currentData, columnManager.getSelectedColumns());
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'data_dictionary.csv';
-        a.click();
-        URL.revokeObjectURL(url);
+        try {
+            const exportBtn = document.getElementById('exportBtn');
+            const originalText = exportBtn.textContent;
+
+            // Show loading state
+            exportBtn.disabled = true;
+            exportBtn.textContent = 'Generating Excel...';
+
+            // Generate Excel file
+            await renderer.exportToExcel(currentData, columnManager.getSelectedColumns());
+
+            // Restore button state
+            exportBtn.disabled = false;
+            exportBtn.textContent = originalText;
+        } catch (error) {
+            console.error('Error generating Excel file:', error);
+            alert('An error occurred while generating the Excel file. Please try again.');
+
+            // Restore button state
+            const exportBtn = document.getElementById('exportBtn');
+            exportBtn.disabled = false;
+            exportBtn.textContent = 'Export to Excel';
+        }
     });
 
     // Close enum dropdowns when clicking outside
