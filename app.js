@@ -1467,9 +1467,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const processBtn = document.getElementById('processBtn');
         const errorMessage = document.getElementById('errorMessage');
 
+        const clearBtn = document.getElementById('clearBtn');
         if (files.length === 0) {
             fileInfo.textContent = 'No files selected';
             processBtn.style.display = 'none';
+            clearBtn.style.display = 'none';
             return;
         }
 
@@ -1478,6 +1480,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `${files.length} files selected`;
 
         processBtn.style.display = 'inline-block';
+        clearBtn.style.display = 'inline-block';
         errorMessage.innerHTML = '';
     });
 
@@ -1546,6 +1549,35 @@ document.addEventListener('DOMContentLoaded', () => {
             exportBtn.disabled = false;
             exportBtn.textContent = 'Export to Excel';
         }
+    });
+
+    // Clear button handler
+    document.getElementById('clearBtn').addEventListener('click', () => {
+        // Clear all displays
+        document.getElementById('tableOutput').innerHTML = '';
+        document.getElementById('columnSelectorContainer').innerHTML = '';
+        document.getElementById('columnSelectorContainer').style.display = 'none';
+        document.getElementById('errorMessage').innerHTML = '';
+
+        // Reset file input
+        document.getElementById('fileInput').value = '';
+        document.getElementById('fileInfo').textContent = 'No files selected';
+
+        // Hide buttons
+        document.getElementById('processBtn').style.display = 'none';
+        document.getElementById('clearBtn').style.display = 'none';
+        document.getElementById('exportBtn').style.display = 'none';
+
+        // Clear processor data
+        processor.schemas.clear();
+        processor.mainSchema = null;
+        processor.keywordUsage.clear();
+
+        // Clear current data
+        currentData = null;
+
+        // Reset column manager to defaults
+        columnManager.selectedColumns = [...columnManager.defaultColumnOrder];
     });
 
     // Close enum dropdowns when clicking outside

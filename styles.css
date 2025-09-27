@@ -110,6 +110,15 @@ h1 {
     background: #7f8c8d;
 }
 
+.btn-danger {
+    background: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #c0392b;
+}
+
 /* Column Selector Styles */
 .column-selector-container {
     background: white;
@@ -362,7 +371,7 @@ thead th.col-required { min-width: 80px; }
 thead th.col-default { min-width: 100px; }
 thead th.col-dynamic { min-width: 120px; }
 
-tbody tr {
+tbody tr:not(.category-row) {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     transform-origin: center;
 }
@@ -429,11 +438,17 @@ tbody td {
     background: #e3f2fd;
     font-weight: 600;
     color: #1565c0;
+    position: sticky;
+    top: 46px; /* Position below the table header */
+    z-index: 5;
+    will-change: transform;
+    transform: translateZ(0); /* Create stacking context */
 }
 
 .category-row td {
     padding: 12px 16px;
     border-bottom: 2px solid #90caf9;
+    background: #e3f2fd; /* Ensure background covers content below */
 }
 
 .variable-name {
