@@ -1,10 +1,30 @@
+/**
+ * Processes JSON Schema files and extracts table data for rendering
+ */
 class SchemaProcessor {
+    // Keywords that should not be shown as available columns
+    static EXCLUDED_KEYWORDS = new Set([
+        // System keywords
+        '$schema', '$id', '$ref', 'properties', 'items', 'allOf', 'anyOf', 'oneOf',
+        // Default column keywords that are always handled
+        'name', 'description', 'type', 'enum', 'enumDescriptions',
+        // Keywords consolidated into constraints column
+        'required', 'const', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+        'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
+        'uniqueItems', 'minProperties', 'maxProperties'
+    ]);
+
     constructor() {
         this.schemas = new Map();
         this.mainSchema = null;
         this.keywordUsage = new Map();
     }
 
+    /**
+     * Process multiple JSON Schema files and identify the main schema
+     * @param {FileList} files - Array of JSON Schema files
+     * @returns {Promise<boolean>} True if main schema was identified
+     */
     async processFiles(files) {
         this.schemas.clear();
         this.mainSchema = null;
@@ -41,6 +61,12 @@ class SchemaProcessor {
         return this.mainSchema !== null;
     }
 
+    /**
+     * Resolve a JSON Schema $ref reference
+     * @param {string} ref - The $ref string to resolve
+     * @param {Object} baseSchema - The base schema for internal refs
+     * @returns {Object|null} The resolved schema or null
+     */
     resolveRef(ref, baseSchema) {
         if (ref.startsWith('#')) {
             // Internal reference
@@ -97,24 +123,12 @@ class SchemaProcessor {
     collectKeywordUsage() {
         const properties = this.getTableData()?.properties || [];
 
-        // Keywords that should not be shown as available columns
-        const excludedKeywords = new Set([
-            // System keywords
-            '$schema', '$id', '$ref', 'properties', 'items', 'allOf', 'anyOf', 'oneOf',
-            // Default column keywords that are always handled
-            'name', 'description', 'type', 'enum', 'enumDescriptions',
-            // Keywords consolidated into constraints column
-            'required', 'const', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
-            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
-            'uniqueItems', 'minProperties', 'maxProperties'
-        ]);
-
         for (const prop of properties) {
             const schema = prop.schema;
 
             // Collect all keywords from the schema
             for (const keyword of Object.keys(schema)) {
-                if (!excludedKeywords.has(keyword)) {
+                if (!SchemaProcessor.EXCLUDED_KEYWORDS.has(keyword)) {
                     const count = this.keywordUsage.get(keyword) || 0;
                     this.keywordUsage.set(keyword, count + 1);
                 }
@@ -149,6 +163,9 @@ class SchemaProcessor {
     }
 }
 
+/**
+ * Manages column selection, ordering, and rendering for the data dictionary table
+ */
 class ColumnManager {
     constructor() {
         // Default columns that are always shown initially
@@ -548,105 +565,109 @@ class ColumnManager {
 
 }
 
+/**
+ * Renders schema data as HTML tables and exports to CSV/Excel formats
+ */
 class TableRenderer {
+    // Standard JSON Schema format descriptions
+    static FORMAT_DESCRIPTIONS = {
+        // Dates and Times
+        'date-time': {
+            description: 'Date and time together',
+            example: '2018-11-13T20:20:39+00:00'
+        },
+        'time': {
+            description: 'Time',
+            example: '20:20:39+00:00'
+        },
+        'date': {
+            description: 'Date',
+            example: '2018-11-13'
+        },
+        'duration': {
+            description: 'ISO 8601 duration',
+            example: 'P3D (3 days)'
+        },
+
+        // Email Addresses
+        'email': {
+            description: 'Email address',
+            example: 'user@example.com'
+        },
+        'idn-email': {
+            description: 'Internationalized email',
+            example: 'user@例え.jp'
+        },
+
+        // Hostnames
+        'hostname': {
+            description: 'Internet host name',
+            example: 'example.com'
+        },
+        'idn-hostname': {
+            description: 'Internationalized hostname',
+            example: '例え.jp'
+        },
+
+        // IP Addresses
+        'ipv4': {
+            description: 'IPv4 address',
+            example: '192.168.1.1'
+        },
+        'ipv6': {
+            description: 'IPv6 address',
+            example: '2001:db8::8a2e:370:7334'
+        },
+
+        // Resource Identifiers
+        'uuid': {
+            description: 'Universally Unique Identifier',
+            example: '3e4666bf-d5e5-4aa7-b8ce-cefe41c7568a'
+        },
+        'uri': {
+            description: 'URI',
+            example: 'https://example.com/path'
+        },
+        'uri-reference': {
+            description: 'URI or relative reference',
+            example: '/path/to/resource'
+        },
+        'iri': {
+            description: 'Internationalized URI',
+            example: 'https://例え.jp/path'
+        },
+        'iri-reference': {
+            description: 'Internationalized URI reference',
+            example: '/パス/リソース'
+        },
+
+        // Templates and Pointers
+        'uri-template': {
+            description: 'URI Template',
+            example: '/users/{id}/posts{?limit}'
+        },
+        'json-pointer': {
+            description: 'JSON Pointer',
+            example: '/foo/bar/0'
+        },
+        'relative-json-pointer': {
+            description: 'Relative JSON Pointer',
+            example: '0/foo/bar'
+        },
+
+        // Regular Expressions
+        'regex': {
+            description: 'Regular expression',
+            example: '^[a-z]+$'
+        }
+    };
+
     constructor(columnManager) {
         this.columnManager = columnManager;
     }
 
     getFormatDescription(format) {
-        const formatDescriptions = {
-            // Dates and Times
-            'date-time': {
-                description: 'Date and time together',
-                example: '2018-11-13T20:20:39+00:00'
-            },
-            'time': {
-                description: 'Time',
-                example: '20:20:39+00:00'
-            },
-            'date': {
-                description: 'Date',
-                example: '2018-11-13'
-            },
-            'duration': {
-                description: 'ISO 8601 duration',
-                example: 'P3D (3 days)'
-            },
-
-            // Email Addresses
-            'email': {
-                description: 'Email address',
-                example: 'user@example.com'
-            },
-            'idn-email': {
-                description: 'Internationalized email',
-                example: 'user@例え.jp'
-            },
-
-            // Hostnames
-            'hostname': {
-                description: 'Internet host name',
-                example: 'example.com'
-            },
-            'idn-hostname': {
-                description: 'Internationalized hostname',
-                example: '例え.jp'
-            },
-
-            // IP Addresses
-            'ipv4': {
-                description: 'IPv4 address',
-                example: '192.168.1.1'
-            },
-            'ipv6': {
-                description: 'IPv6 address',
-                example: '2001:db8::8a2e:370:7334'
-            },
-
-            // Resource Identifiers
-            'uuid': {
-                description: 'Universally Unique Identifier',
-                example: '3e4666bf-d5e5-4aa7-b8ce-cefe41c7568a'
-            },
-            'uri': {
-                description: 'URI',
-                example: 'https://example.com/path'
-            },
-            'uri-reference': {
-                description: 'URI or relative reference',
-                example: '/path/to/resource'
-            },
-            'iri': {
-                description: 'Internationalized URI',
-                example: 'https://例え.jp/path'
-            },
-            'iri-reference': {
-                description: 'Internationalized URI reference',
-                example: '/パス/リソース'
-            },
-
-            // Templates and Pointers
-            'uri-template': {
-                description: 'URI Template',
-                example: '/users/{id}/posts{?limit}'
-            },
-            'json-pointer': {
-                description: 'JSON Pointer',
-                example: '/foo/bar/0'
-            },
-            'relative-json-pointer': {
-                description: 'Relative JSON Pointer',
-                example: '0/foo/bar'
-            },
-
-            // Regular Expressions
-            'regex': {
-                description: 'Regular expression',
-                example: '^[a-z]+$'
-            }
-        };
-
-        return formatDescriptions[format] || null;
+        return TableRenderer.FORMAT_DESCRIPTIONS[format] || null;
     }
 
     formatType(schema) {
@@ -686,6 +707,12 @@ class TableRenderer {
         return div.innerHTML;
     }
 
+    /**
+     * Format constraint information from schema into an array of strings
+     * @param {Object} prop - Property object with name and required flag
+     * @param {Object} schema - JSON Schema object
+     * @returns {Array<string>} Array of constraint strings
+     */
     formatConstraintsColumn(prop, schema) {
         const constraints = [];
 
@@ -878,24 +905,13 @@ class TableRenderer {
     }
 
     formatAdditionalInfo(prop, schema) {
-        // Keywords that are handled in other columns and should be excluded
-        const excludedKeywords = [
-            'name', 'description', 'type', 'format', 'enum', 'enumDescriptions', 'const',
-            '$schema', '$id', '$ref', 'properties', 'items',
-            'allOf', 'anyOf', 'oneOf',
-            // Keywords consolidated into Constraints column
-            'required', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
-            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
-            'uniqueItems', 'minProperties', 'maxProperties'
-        ];
-
         // Get currently displayed columns
         const displayedColumns = this.columnManager.getSelectedColumns();
 
         // Collect all other keywords not in displayed columns or excluded
         const additionalData = {};
         for (const [key, value] of Object.entries(schema)) {
-            if (!excludedKeywords.includes(key) &&
+            if (!SchemaProcessor.EXCLUDED_KEYWORDS.has(key) &&
                 !displayedColumns.includes(key) &&
                 value !== undefined && value !== null) {
                 additionalData[key] = value;
@@ -926,33 +942,49 @@ class TableRenderer {
         </div>`;
     }
 
-    formatConstraintsForCSV(prop, schema) {
-        const constraints = this.formatConstraintsColumn(prop, schema);
-        return constraints.join('\n');
+    /**
+     * Format enum values for export (CSV/Excel)
+     * @param {Object} schema - The schema object
+     * @param {string} format - Output format: 'csv' or 'excel'
+     * @returns {string} Formatted enum values
+     */
+    formatEnumForExport(schema, format = 'csv') {
+        if (!schema.enum) return '';
+
+        const hasDescriptions = schema.enumDescriptions &&
+            Array.isArray(schema.enumDescriptions) &&
+            schema.enumDescriptions.length === schema.enum.length;
+
+        const prefix = format === 'excel' ? '• ' : '';
+        const separator = hasDescriptions ? ': ' : '';
+
+        if (hasDescriptions) {
+            return schema.enum.map((value, index) =>
+                `${prefix}${value}${separator}${schema.enumDescriptions[index]}`
+            ).join('\n');
+        } else {
+            return schema.enum.map(value => `${prefix}${value}`).join(format === 'excel' ? '\n' : '\n');
+        }
     }
 
-    formatAdditionalInfoForCSV(prop, schema) {
-        // Keywords that are handled in other columns and should be excluded
-        const excludedKeywords = [
-            'name', 'description', 'type', 'format', 'enum', 'enumDescriptions', 'const',
-            '$schema', '$id', '$ref', 'properties', 'items',
-            'allOf', 'anyOf', 'oneOf',
-            // Keywords consolidated into Constraints column
-            'required', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
-            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
-            'uniqueItems', 'minProperties', 'maxProperties'
-        ];
-
+    /**
+     * Format additional info for export (CSV/Excel)
+     * @param {Object} prop - The property object
+     * @param {Object} schema - The schema object
+     * @returns {string} Formatted additional info
+     */
+    formatAdditionalInfoForExport(prop, schema) {
         // Get currently displayed columns
         const displayedColumns = this.columnManager.getSelectedColumns();
 
         // Collect all other keywords not in displayed columns or excluded
         const additionalData = [];
         for (const [key, value] of Object.entries(schema)) {
-            if (!excludedKeywords.includes(key) &&
+            if (!SchemaProcessor.EXCLUDED_KEYWORDS.has(key) &&
                 !displayedColumns.includes(key) &&
                 value !== undefined && value !== null) {
-                const displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+                const displayValue = typeof value === 'object' ?
+                    JSON.stringify(value, null, 2) : String(value);
                 additionalData.push(`${this.columnManager.formatKeywordDisplay(key)}: ${displayValue}`);
             }
         }
@@ -960,22 +992,12 @@ class TableRenderer {
         return additionalData.join('\n');
     }
 
-    formatEnumForCSV(schema) {
-        if (!schema.enum) return '';
-
-        const hasDescriptions = schema.enumDescriptions &&
-            Array.isArray(schema.enumDescriptions) &&
-            schema.enumDescriptions.length === schema.enum.length;
-
-        if (hasDescriptions) {
-            return schema.enum.map((value, index) =>
-                `${value}: ${schema.enumDescriptions[index]}`
-            ).join('\n');
-        } else {
-            return schema.enum.join('\n');
-        }
-    }
-
+    /**
+     * Render the data dictionary as an HTML table
+     * @param {Object} data - Processed schema data with properties array
+     * @param {Array<string>} selectedColumns - Optional array of column keywords to display
+     * @returns {string} HTML string for the table
+     */
     render(data, selectedColumns = null) {
         if (!data) return '<div class="error-message">No valid schema data to display</div>';
 
@@ -1070,7 +1092,7 @@ class TableRenderer {
                     case 'enum':
                         value = prop.schema.const !== undefined ?
                             String(prop.schema.const) :
-                            this.formatEnumForCSV(prop.schema);
+                            this.formatEnumForExport(prop.schema, 'csv');
                         break;
                     case 'format':
                         if (prop.schema.format) {
@@ -1083,10 +1105,10 @@ class TableRenderer {
                         }
                         break;
                     case 'constraints':
-                        value = this.formatConstraintsForCSV(prop, prop.schema);
+                        value = this.formatConstraintsColumn(prop, prop.schema).join('\n');
                         break;
                     case 'additionalInfo':
-                        value = this.formatAdditionalInfoForCSV(prop, prop.schema);
+                        value = this.formatAdditionalInfoForExport(prop, prop.schema);
                         break;
                     default:
                         if (prop.schema[col] !== undefined) {
@@ -1111,6 +1133,39 @@ class TableRenderer {
                 return cellStr;
             }).join(',')
         ).join('\n');
+    }
+
+    /**
+     * Apply borders to a cell based on its position
+     * @param {Object} cell - ExcelJS cell object
+     * @param {number} rowIndex - Row index (1-based)
+     */
+    applyCellBorder(cell, rowIndex) {
+        if (rowIndex === 1) {
+            // Title row - thick border
+            cell.border = {
+                top: { style: 'medium', color: { argb: 'FF34495E' } },
+                left: { style: 'medium', color: { argb: 'FF34495E' } },
+                bottom: { style: 'medium', color: { argb: 'FF34495E' } },
+                right: { style: 'medium', color: { argb: 'FF34495E' } }
+            };
+        } else if (rowIndex === 2) {
+            // Header row - medium border
+            cell.border = {
+                top: { style: 'medium', color: { argb: 'FF34495E' } },
+                left: { style: 'thin', color: { argb: 'FF95A5A6' } },
+                bottom: { style: 'medium', color: { argb: 'FF34495E' } },
+                right: { style: 'thin', color: { argb: 'FF95A5A6' } }
+            };
+        } else {
+            // Data rows - thin border
+            cell.border = {
+                top: { style: 'thin', color: { argb: 'FFD5DBDB' } },
+                left: { style: 'thin', color: { argb: 'FFD5DBDB' } },
+                bottom: { style: 'thin', color: { argb: 'FFD5DBDB' } },
+                right: { style: 'thin', color: { argb: 'FFD5DBDB' } }
+            };
+        }
     }
 
     async exportToExcel(data, selectedColumns = null) {
@@ -1216,7 +1271,7 @@ class TableRenderer {
                     case 'enum':
                         value = prop.schema.const !== undefined ?
                             String(prop.schema.const) :
-                            this.formatEnumForExcel(prop.schema);
+                            this.formatEnumForExport(prop.schema, 'excel');
                         break;
                     case 'format':
                         if (prop.schema.format) {
@@ -1229,10 +1284,10 @@ class TableRenderer {
                         }
                         break;
                     case 'constraints':
-                        value = this.formatConstraintsForExcel(prop, prop.schema);
+                        value = this.formatConstraintsColumn(prop, prop.schema).join('\n');
                         break;
                     case 'additionalInfo':
-                        value = this.formatAdditionalInfoForExcel(prop, prop.schema);
+                        value = this.formatAdditionalInfoForExport(prop, prop.schema);
                         break;
                     default:
                         if (prop.schema[col] !== undefined) {
@@ -1285,6 +1340,16 @@ class TableRenderer {
         }
 
         // Auto-fit columns with max width
+        const maxWidthMap = {
+            'description': 50,
+            'enum': 35,
+            'constraints': 30,
+            'additionalInfo': 35
+        };
+        const defaultMaxWidth = 40;
+        const categoryMaxWidth = 20;
+        const minWidth = 10;
+
         worksheet.columns.forEach((column, index) => {
             let maxLength = 0;
             const columnLetter = String.fromCharCode(65 + index);
@@ -1302,14 +1367,14 @@ class TableRenderer {
                 maxLength = Math.max(maxLength, longestLine);
             }
 
-            // Set width with minimum and maximum constraints
-            const minWidth = 10;
-            const maxWidth = index === 0 ? 20 : // Category column
-                            columns[index - 1] === 'description' ? 50 :
-                            columns[index - 1] === 'enum' ? 35 :
-                            columns[index - 1] === 'constraints' ? 30 :
-                            columns[index - 1] === 'additionalInfo' ? 35 :
-                            40;
+            // Determine max width based on column type
+            let maxWidth;
+            if (index === 0) {
+                maxWidth = categoryMaxWidth;
+            } else {
+                const columnKey = columns[index - 1];
+                maxWidth = maxWidthMap[columnKey] || defaultMaxWidth;
+            }
 
             column.width = Math.min(Math.max(maxLength + 2, minWidth), maxWidth);
         });
@@ -1318,31 +1383,7 @@ class TableRenderer {
         for (let i = 1; i <= worksheet.rowCount; i++) {
             for (let j = 1; j <= headers.length; j++) {
                 const cell = worksheet.getRow(i).getCell(j);
-                if (i === 1) {
-                    // Title row - thick border
-                    cell.border = {
-                        top: { style: 'medium', color: { argb: 'FF34495E' } },
-                        left: { style: 'medium', color: { argb: 'FF34495E' } },
-                        bottom: { style: 'medium', color: { argb: 'FF34495E' } },
-                        right: { style: 'medium', color: { argb: 'FF34495E' } }
-                    };
-                } else if (i === 2) {
-                    // Header row - medium border
-                    cell.border = {
-                        top: { style: 'medium', color: { argb: 'FF34495E' } },
-                        left: { style: 'thin', color: { argb: 'FF95A5A6' } },
-                        bottom: { style: 'medium', color: { argb: 'FF34495E' } },
-                        right: { style: 'thin', color: { argb: 'FF95A5A6' } }
-                    };
-                } else {
-                    // Data rows - thin border
-                    cell.border = {
-                        top: { style: 'thin', color: { argb: 'FFD5DBDB' } },
-                        left: { style: 'thin', color: { argb: 'FFD5DBDB' } },
-                        bottom: { style: 'thin', color: { argb: 'FFD5DBDB' } },
-                        right: { style: 'thin', color: { argb: 'FFD5DBDB' } }
-                    };
-                }
+                this.applyCellBorder(cell, i);
             }
         }
 
@@ -1372,56 +1413,6 @@ class TableRenderer {
         saveAs(blob, `${data.title || 'data_dictionary'}.xlsx`);
     }
 
-    formatEnumForExcel(schema) {
-        if (!schema.enum) return '';
-
-        const hasDescriptions = schema.enumDescriptions &&
-            Array.isArray(schema.enumDescriptions) &&
-            schema.enumDescriptions.length === schema.enum.length;
-
-        if (hasDescriptions) {
-            return schema.enum.map((value, index) =>
-                `• ${value}: ${schema.enumDescriptions[index]}`
-            ).join('\n');
-        } else {
-            return schema.enum.map(value => `• ${value}`).join('\n');
-        }
-    }
-
-    formatConstraintsForExcel(prop, schema) {
-        const constraints = this.formatConstraintsColumn(prop, schema);
-        return constraints.join('\n');
-    }
-
-    formatAdditionalInfoForExcel(prop, schema) {
-        // Keywords that are handled in other columns and should be excluded
-        const excludedKeywords = [
-            'name', 'description', 'type', 'format', 'enum', 'enumDescriptions', 'const',
-            '$schema', '$id', '$ref', 'properties', 'items',
-            'allOf', 'anyOf', 'oneOf',
-            // Keywords consolidated into Constraints column
-            'required', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
-            'minLength', 'maxLength', 'pattern', 'multipleOf', 'minItems', 'maxItems',
-            'uniqueItems', 'minProperties', 'maxProperties'
-        ];
-
-        // Get currently displayed columns
-        const displayedColumns = this.columnManager.getSelectedColumns();
-
-        // Collect all other keywords not in displayed columns or excluded
-        const additionalData = [];
-        for (const [key, value] of Object.entries(schema)) {
-            if (!excludedKeywords.includes(key) &&
-                !displayedColumns.includes(key) &&
-                value !== undefined && value !== null) {
-                const displayValue = typeof value === 'object' ?
-                    JSON.stringify(value, null, 2) : String(value);
-                additionalData.push(`${this.columnManager.formatKeywordDisplay(key)}: ${displayValue}`);
-            }
-        }
-
-        return additionalData.join('\n');
-    }
 }
 
 // Global functions for event handlers
@@ -1454,11 +1445,10 @@ window.filterTable = function() {
 const processor = new SchemaProcessor();
 const columnManager = new ColumnManager();
 const renderer = new TableRenderer(columnManager);
-let currentData = null;
 
-// Make renderer and currentData globally accessible for column updates
+// Make components globally accessible for event handlers
 window.renderer = renderer;
-window.currentData = currentData;
+window.currentData = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('fileInput').addEventListener('change', async (e) => {
@@ -1500,8 +1490,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('Could not identify main schema. Please ensure one schema has type: "array" with items.');
             }
 
-            currentData = processor.getTableData();
-            window.currentData = currentData;
+            window.currentData = processor.getTableData();
 
             // Get keyword usage statistics
             const keywordStats = processor.getKeywordUsageStats();
@@ -1574,7 +1563,7 @@ document.addEventListener('DOMContentLoaded', () => {
         processor.keywordUsage.clear();
 
         // Clear current data
-        currentData = null;
+        window.currentData = null;
 
         // Reset column manager to defaults
         columnManager.selectedColumns = [...columnManager.defaultColumnOrder];

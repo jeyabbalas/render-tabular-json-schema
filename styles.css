@@ -1,3 +1,12 @@
+/* CSS Variables for maintainability */
+:root {
+    --header-height: 46px;
+    --category-row-z-index: 8;
+    --header-z-index: 10;
+    --dropdown-z-index: 1000;
+    --enum-list-z-index: 100;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -178,7 +187,7 @@ h1 {
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     max-height: 500px;
     overflow-y: auto;
-    z-index: 1000;
+    z-index: var(--dropdown-z-index);
 }
 
 .column-selector-list.show {
@@ -195,7 +204,7 @@ h1 {
     position: sticky;
     top: 0;
     background: white;
-    z-index: 10;
+    z-index: var(--header-z-index);
 }
 
 .column-selector-control-btn {
@@ -362,7 +371,7 @@ thead th {
     border-bottom: 2px solid #dee2e6;
     position: sticky;
     top: 0;
-    z-index: 10;
+    z-index: var(--header-z-index);
     white-space: nowrap;
     /* Prevent flickering */
     backface-visibility: hidden;
@@ -446,8 +455,8 @@ tbody td {
     font-weight: 600;
     color: #1565c0;
     position: sticky;
-    top: 46px; /* Position below the table header */
-    z-index: 8;
+    top: var(--header-height); /* Position below the table header */
+    z-index: var(--category-row-z-index);
     /* Prevent flickering and blinking */
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
@@ -573,7 +582,6 @@ tbody td {
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     padding: 8px 0;
-    z-index: 100;
     min-width: 250px;
     max-width: 400px;
     max-height: 300px;
@@ -582,6 +590,7 @@ tbody td {
     left: 0;
     margin-top: 5px;
     animation: slideDown 0.2s ease-out;
+    z-index: var(--enum-list-z-index);
 }
 
 .enum-list.show {
